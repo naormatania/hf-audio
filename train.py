@@ -4,11 +4,13 @@ import evaluate
 import numpy as np
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification, Trainer, TrainingArguments
 import wandb
+import sys
 
-FINETUNED_MODEL_NAME = f"{MODEL_ID.split('/')[-1]}-finetuned-gtzan"
+VERSION = sys.argv[1]
+FINETUNED_MODEL_NAME = f"{MODEL_ID.split('/')[-1]}-finetuned-gtzan-{VERSION}"
 BATCH_SIZE = 8
 LEARNING_RATE = 5e-5
-gradient_accumulation_steps = 1
+GRADIENT_ACCUMULATION_STEPS = 1
 NUM_TRAIN_EPOCHS = 10
 METRIC = "accuracy"
 
@@ -22,7 +24,7 @@ def get_metrics():
     
     return compute_metrics
 
-def get_model():
+def get_model(gtzan):
     id2label_fn = gtzan["train"].features["label"].int2str
     id2label = {
         str(i): id2label_fn(i)
@@ -31,16 +33,23 @@ def get_model():
     label2id = {v: k for k, v in id2label.items()}
     num_labels = len(id2label)
 
+    config = {}
+
+    if VERSION == "v1":
+        print("V1 is running")
+        config.update({'layerdrop': 0.5})
+
     return AutoModelForAudioClassification.from_pretrained(
         MODEL_ID,
         num_labels=num_labels,
         label2id=label2id,
         id2label=id2label,
+        **config,
     )
 
 if __name__ == "__main__":
     
-    wandb.init(project="hf-audio-u4", job_type="train")
+    wandb.init(project="hf-audio-u4", job_type="train", name=f"run-{VERSION}")
 
     gtzan = load_from_disk("./data/gtzan")
 
@@ -48,7 +57,7 @@ if __name__ == "__main__":
         MODEL_ID, do_normalize=True, return_attention_mask=True
     )
 
-    model = get_model()
+    model = get_model(gtzan)
 
     training_args = TrainingArguments(
         FINETUNED_MODEL_NAME,
@@ -56,7 +65,8 @@ if __name__ == "__main__":
         save_strategy="epoch",
         learning_rate=LEARNING_RATE,
         per_device_train_batch_size=BATCH_SIZE,
-        gradient_accumulation_steps=gradient_accumulation_steps,
+        # Number of updates steps to accumulate the gradients for, before performing a backward/update pass
+        gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
         per_device_eval_batch_size=BATCH_SIZE,
         num_train_epochs=NUM_TRAIN_EPOCHS,
         # Ratio of total training steps used for a linear warmup from 0 to learning_rate
