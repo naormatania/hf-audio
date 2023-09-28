@@ -1,0 +1,6 @@
+datasets[audio]
+transformers[torch]
+gradio
+wandb
+evaluate
+numpy
