@@ -1,3 +1,4 @@
+import argparse
 from consts import MODEL_ID
 import gradio as gr
 from datasets import load_dataset, Audio
@@ -38,6 +39,14 @@ def preprocess_function(examples):
     return inputs
 
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+
+    # Data, model, and output directories
+    parser.add_argument("--output_path", type=str)
+
+    args, _ = parser.parse_known_args()
+
     gtzan = load_dataset(DATASET_NAME, DATASET_CONFIG)
     gtzan = gtzan["train"].train_test_split(seed=42, shuffle=True, test_size=TEST_SIZE)
     id2label_fn = gtzan["train"].features["genre"].int2str
@@ -55,4 +64,4 @@ if __name__ == "__main__":
         num_proc=NUM_PROC,
     )
     gtzan_encoded = gtzan_encoded.rename_column("genre", "label")
-    gtzan_encoded.save_to_disk('data/gtzan')
+    gtzan_encoded.save_to_disk(args.output_path)

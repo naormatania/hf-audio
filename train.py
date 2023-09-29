@@ -1,17 +1,16 @@
+import argparse
 from consts import MODEL_ID
 from datasets import load_from_disk
 import evaluate
 import numpy as np
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification, Trainer, TrainingArguments
 import wandb
-import sys
+import os
 
-VERSION = sys.argv[1]
-FINETUNED_MODEL_NAME = f"{MODEL_ID.split('/')[-1]}-finetuned-gtzan-{VERSION}"
 BATCH_SIZE = 8
 LEARNING_RATE = 5e-5
 GRADIENT_ACCUMULATION_STEPS = 1
-NUM_TRAIN_EPOCHS = 10
+NUM_TRAIN_EPOCHS = 15
 METRIC = "accuracy"
 
 def get_metrics():
@@ -24,7 +23,7 @@ def get_metrics():
     
     return compute_metrics
 
-def get_model(gtzan):
+def get_model(gtzan, config, model_name):
     id2label_fn = gtzan["train"].features["label"].int2str
     id2label = {
         str(i): id2label_fn(i)
@@ -33,14 +32,20 @@ def get_model(gtzan):
     label2id = {v: k for k, v in id2label.items()}
     num_labels = len(id2label)
 
-    config = {}
-
+    '''
     if VERSION == "v1":
         print("V1 is running")
         config.update({'layerdrop': 0.5})
+    elif VERSION == "v2":
+        print("V2 is running")
+        config.update({'hidden_dropout': 0.3, 'final_dropout': 0.3})
+    elif VERSION == "v3":
+        print("V2 is running")
+        config.update({'hidden_dropout': 0.5, 'final_dropout': 0.5})
+    '''
 
     return AutoModelForAudioClassification.from_pretrained(
-        MODEL_ID,
+        model_name if wandb.run.resumed else MODEL_ID,
         num_labels=num_labels,
         label2id=label2id,
         id2label=id2label,
@@ -48,19 +53,53 @@ def get_model(gtzan):
     )
 
 if __name__ == "__main__":
-    
-    wandb.init(project="hf-audio-u4", job_type="train", name=f"run-{VERSION}")
 
-    gtzan = load_from_disk("./data/gtzan")
+    parser = argparse.ArgumentParser()
+
+    # hyperparameters sent by the client are passed as command-line arguments to the script.
+    parser.add_argument("--layerdrop", type=float, default=0.1)
+    parser.add_argument("--hidden_dropout", type=float, default=0.1)
+    parser.add_argument("--attention_dropout", type=float, default=0.1)
+    parser.add_argument("--final_dropout", type=float, default=0.1)
+    parser.add_argument("--feat_proj_dropout", type=float, default=0.1)
+
+    # Data, model, and output directories
+    parser.add_argument("--dataset_path", type=str)
+    parser.add_argument("--version", type=str)
+    parser.add_argument("--wandb_run_id", type=str, default="")
+
+    args, _ = parser.parse_known_args()
+
+    if args.wandb_run_id != "":
+        os.environ["WANDB_RESUME"] = "must"
+        os.environ["WANDB_RUN_ID"] = args.wandb_run_id
+
+    wandb.init(project="hf-audio-u4", job_type="train", name=f"run-{args.version}")
+
+    print(f"Load from disk: {args.dataset_path}")
+    gtzan = load_from_disk(args.dataset_path)
+    print("Loaded")
 
     feature_extractor = AutoFeatureExtractor.from_pretrained(
         MODEL_ID, do_normalize=True, return_attention_mask=True
     )
 
-    model = get_model(gtzan)
+    config = {
+        'layerdrop': args.layerdrop,
+        'hidden_dropout': args.hidden_dropout,
+        'attention_dropout': args.attention_dropout,
+        'final_dropout': args.final_dropout,
+        'feat_proj_dropout': args.feat_proj_dropout,
+    }
+    print(config)
+    model_name = f"{MODEL_ID.split('/')[-1]}-finetuned-gtzan-{args.version}"
+    model = get_model(gtzan, config, model_name)
+
+    print(f"wandb.run.step: {wandb.run.step}")
+    num_epoch = NUM_TRAIN_EPOCHS - wandb.run.step
 
     training_args = TrainingArguments(
-        FINETUNED_MODEL_NAME,
+        model_name,
         evaluation_strategy="epoch",
         save_strategy="epoch",
         learning_rate=LEARNING_RATE,
@@ -68,7 +107,7 @@ if __name__ == "__main__":
         # Number of updates steps to accumulate the gradients for, before performing a backward/update pass
         gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
         per_device_eval_batch_size=BATCH_SIZE,
-        num_train_epochs=NUM_TRAIN_EPOCHS,
+        num_train_epochs=num_epoch,
         # Ratio of total training steps used for a linear warmup from 0 to learning_rate
         warmup_ratio=0.1,
         logging_strategy="epoch",
