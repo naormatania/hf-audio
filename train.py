@@ -76,9 +76,7 @@ if __name__ == "__main__":
 
     wandb.init(project="hf-audio-u4", job_type="train", name=f"run-{args.version}")
 
-    print(f"Load from disk: {args.dataset_path}")
     gtzan = load_from_disk(args.dataset_path)
-    print("Loaded")
 
     feature_extractor = AutoFeatureExtractor.from_pretrained(
         MODEL_ID, do_normalize=True, return_attention_mask=True
@@ -91,9 +89,9 @@ if __name__ == "__main__":
         'final_dropout': args.final_dropout,
         'feat_proj_dropout': args.feat_proj_dropout,
     }
-    print(config)
     model_name = f"{MODEL_ID.split('/')[-1]}-finetuned-gtzan-{args.version}"
     model = get_model(gtzan, config, model_name)
+    print(model.config)
 
     print(f"wandb.run.step: {wandb.run.step}")
     num_epoch = NUM_TRAIN_EPOCHS - wandb.run.step
