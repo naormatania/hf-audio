@@ -3,13 +3,27 @@ from consts import MODEL_ID
 from datasets import load_from_disk
 import evaluate
 import numpy as np
-from transformers import AutoFeatureExtractor, AutoModelForAudioClassification, Trainer, TrainingArguments, TrainerCallback
+from transformers import AutoFeatureExtractor, AutoModelForAudioClassification, Trainer, TrainingArguments
 import wandb
 import os
 
+BATCH_SIZE = 8
+LEARNING_RATE = 5e-5
 GRADIENT_ACCUMULATION_STEPS = 1
-NUM_TRAIN_EPOCHS = 10
+NUM_TRAIN_EPOCHS = 15
 METRIC = "accuracy"
+
+def wandb_hp_space(trial):
+    return {
+        "method": "grid",
+        "parameters": {
+            "layerdrop": {"values": [0.1, 0.3, 0.5]},
+            "hidden_dropout": {"values": [0.1, 0.3, 0.5]},
+            "attention_dropout": {"values": [0.1, 0.3, 0.5]},
+            "final_dropout": {"values": [0.1, 0.3, 0.5]},
+            "feat_proj_dropout": {"values": [0.1, 0.3, 0.5]},
+        },
+    }
 
 def get_metrics():
     metric = evaluate.load(METRIC)
@@ -30,18 +44,6 @@ def get_model(gtzan, config, model_name):
     label2id = {v: k for k, v in id2label.items()}
     num_labels = len(id2label)
 
-    '''
-    if VERSION == "v1":
-        print("V1 is running")
-        config.update({'layerdrop': 0.5})
-    elif VERSION == "v2":
-        print("V2 is running")
-        config.update({'hidden_dropout': 0.3, 'final_dropout': 0.3})
-    elif VERSION == "v3":
-        print("V2 is running")
-        config.update({'hidden_dropout': 0.5, 'final_dropout': 0.5})
-    '''
-
     return AutoModelForAudioClassification.from_pretrained(
         model_name if wandb.run.resumed else MODEL_ID,
         num_labels=num_labels,
@@ -53,16 +55,6 @@ def get_model(gtzan, config, model_name):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-
-    # hyperparameters sent by the client are passed as command-line arguments to the script.
-    parser.add_argument("--layerdrop", type=float, default=0)
-    parser.add_argument("--hidden_dropout", type=float, default=0.1)
-    parser.add_argument("--attention_dropout", type=float, default=0.1)
-    parser.add_argument("--final_dropout", type=float, default=0)
-    parser.add_argument("--feat_proj_dropout", type=float, default=0)
-    parser.add_argument("--learning_rate", type=float, default=5e-5)
-    parser.add_argument("--train_batch_size", type=int, default=8)
-    parser.add_argument("--eval_batch_size", type=int, default=8)
 
     # Data, model, and output directories
     parser.add_argument("--dataset_path", type=str)
@@ -92,6 +84,7 @@ if __name__ == "__main__":
     }
     model_name = f"{MODEL_ID.split('/')[-1]}-finetuned-gtzan-{args.version}"
     model = get_model(gtzan, config, model_name)
+    print(model.config)
 
     print(f"wandb.run.step: {wandb.run.step}")
     num_epoch = NUM_TRAIN_EPOCHS - wandb.run.step
@@ -100,11 +93,11 @@ if __name__ == "__main__":
         model_name,
         evaluation_strategy="epoch",
         save_strategy="epoch",
-        learning_rate=args.learning_rate,
-        per_device_train_batch_size=args.train_batch_size,
+        learning_rate=LEARNING_RATE,
+        per_device_train_batch_size=BATCH_SIZE,
         # Number of updates steps to accumulate the gradients for, before performing a backward/update pass
         gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
-        per_device_eval_batch_size=args.eval_batch_size,
+        per_device_eval_batch_size=BATCH_SIZE,
         num_train_epochs=num_epoch,
         # Ratio of total training steps used for a linear warmup from 0 to learning_rate
         warmup_ratio=0.1,
@@ -117,14 +110,6 @@ if __name__ == "__main__":
         report_to="wandb",
     )
 
-    class LoggingCallback(TrainerCallback):
-        def on_save(self, args, state, control, **kwargs):
-            print(args)
-            print(state)
-            print(control)
-            print(kwargs)
-            #run.log({})
-
     trainer = Trainer(
         model,
         training_args,
@@ -132,7 +117,6 @@ if __name__ == "__main__":
         eval_dataset=gtzan["test"],
         tokenizer=feature_extractor,
         compute_metrics=get_metrics(),
-        callbacks=[LoggingCallback],
     )
 
     trainer.train()
