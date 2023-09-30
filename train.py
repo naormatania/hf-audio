@@ -119,11 +119,8 @@ if __name__ == "__main__":
 
     class LoggingCallback(TrainerCallback):
         def on_save(self, args, state, control, **kwargs):
-            print(args)
             print(state)
-            print(control)
-            print(kwargs)
-            #run.log({})
+            # TODO run.log({'epoch': state.epoch}) and then load it in start callback via reading run.history
 
     trainer = Trainer(
         model,
