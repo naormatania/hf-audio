@@ -4,3 +4,5 @@ gradio
 wandb
 evaluate
 numpy
+accelerate
+nvidia-ml-py3

@@ -6,9 +6,10 @@ import numpy as np
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification, Trainer, TrainingArguments, TrainerCallback
 import wandb
 import os
+from performance import print_summary
 
 GRADIENT_ACCUMULATION_STEPS = 1
-NUM_TRAIN_EPOCHS = 10
+NUM_TRAIN_EPOCHS = 1
 METRIC = "accuracy"
 
 def get_metrics():
@@ -132,4 +133,5 @@ if __name__ == "__main__":
         callbacks=[LoggingCallback],
     )
 
-    trainer.train()
+    result = trainer.train()
+    print_summary(result)
